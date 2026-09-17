@@ -1,0 +1,221 @@
+﻿@page "/"
+@inject IUserService UserService
+
+<PageTitle>Users | Blazor Demo</PageTitle>
+
+<header class="page-header">
+	<div>
+		<span class="eyebrow">BLAZOR WEBASSEMBLY / .NET 10</span>
+		<h1>User management</h1>
+		<p>A CRUD demo backed by an in-memory service.</p>
+	</div>
+	<button class="btn btn-primary new-user" @onclick="StartCreating">
+		<span aria-hidden="true">+</span> New user
+	</button>
+</header>
+
+<section class="metrics" aria-label="User summary">
+	<div><span>Total</span><strong>@users.Count</strong></div>
+	<div><span>Active</span><strong>@users.Count(user => user.IsActive)</strong></div>
+	<div><span>Inactive</span><strong>@users.Count(user => !user.IsActive)</strong></div>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(notification))
+{
+	<div class="alert alert-success alert-dismissible" role="status">
+		<span aria-hidden="true">&#10003;</span> @notification
+		<button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => notification = null"></button>
+	</div>
+}
+
+<div class="workspace">
+	<section class="user-list" aria-label="User list">
+		<div class="list-toolbar">
+			<div><h2>Users</h2><span>@FilteredUsers.Count() results</span></div>
+			<label class="search-box">
+				<span aria-hidden="true">&#9906;</span>
+				<input type="search" @bind="searchTerm" @bind:event="oninput" placeholder="Search by name or email" />
+			</label>
+		</div>
+
+		@if (isLoading)
+		{
+			<div class="empty-state"><div class="spinner-border" role="status"></div><span>Loading users...</span></div>
+		}
+		else if (!FilteredUsers.Any())
+		{
+			<div class="empty-state">
+				<span class="empty-icon" aria-hidden="true">0</span>
+				<strong>No users found</strong>
+				<span>Try a different search or create a new user.</span>
+			</div>
+		}
+		else
+		{
+			<div class="table-responsive">
+				<table class="table align-middle">
+					<thead><tr><th>User</th><th>Role</th><th>Status</th><th>Created</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+					<tbody>
+						@foreach (var user in FilteredUsers)
+						{
+							<tr @key="user.Id">
+								<td><div class="identity"><span class="avatar">@GetInitials(user.FullName)</span><span><strong>@user.FullName</strong><small>@user.Email</small></span></div></td>
+								<td>@user.Role</td>
+								<td><span class="status @(user.IsActive ? "active" : "inactive")">@(user.IsActive ? "Active" : "Inactive")</span></td>
+								<td>@user.CreatedAt.ToString("MMM dd, yyyy")</td>
+								<td>
+									<div class="row-actions">
+										<button class="icon-button" title="Edit user" @onclick="() => StartEditing(user)"><span aria-hidden="true">&#9998;</span></button>
+										<button class="icon-button danger" title="Delete user" @onclick="() => userPendingDeletion = user"><span aria-hidden="true">&times;</span></button>
+									</div>
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</section>
+
+</div>
+
+@if (isEditorOpen)
+{
+	<div class="modal-backdrop-custom" role="presentation" @onclick="CloseEditor">
+		<section class="editor user-dialog" role="dialog" aria-modal="true" aria-labelledby="user-form-title" @onclick:stopPropagation>
+			<div class="editor-heading">
+				<div><span class="eyebrow">@(editingUserId is null ? "NEW RECORD" : "EDITING")</span><h2 id="user-form-title">@(editingUserId is null ? "Create user" : "Update user")</h2></div>
+				<button class="icon-button" title="Close form" @onclick="CloseEditor"><span aria-hidden="true">&times;</span></button>
+			</div>
+
+			<EditForm Model="form" OnValidSubmit="SaveAsync" FormName="user-form">
+				<DataAnnotationsValidator />
+				<div class="field">
+					<label for="full-name">Full name</label>
+					<InputText id="full-name" class="form-control" @bind-Value="form.FullName" placeholder="e.g. Marina Lopez" />
+					<ValidationMessage For="() => form.FullName" />
+				</div>
+				<div class="field">
+					<label for="email">Email address</label>
+					<InputText id="email" class="form-control" type="email" @bind-Value="form.Email" placeholder="name@company.com" />
+					<ValidationMessage For="() => form.Email" />
+				</div>
+				<div class="field">
+					<label for="role">Role</label>
+					<InputSelect id="role" class="form-select" @bind-Value="form.Role">
+						<option>Administrator</option><option>Editor</option><option>User</option>
+					</InputSelect>
+				</div>
+				<label class="active-toggle">
+					<InputCheckbox @bind-Value="form.IsActive" />
+					<span><strong>Active user</strong><small>Can sign in to the platform</small></span>
+				</label>
+				<div class="form-actions">
+					<button type="button" class="btn btn-light" @onclick="CloseEditor">Cancel</button>
+					<button type="submit" class="btn btn-primary submit-button" disabled="@isSaving">
+						@if (isSaving) { <span class="spinner-border spinner-border-sm" aria-hidden="true"></span> }
+						@(editingUserId is null ? "Create user" : "Save changes")
+					</button>
+				</div>
+			</EditForm>
+		</section>
+	</div>
+}
+
+@if (userPendingDeletion is not null)
+{
+	<div class="modal-backdrop-custom" role="presentation" @onclick="CancelDeletion">
+		<div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title" @onclick:stopPropagation>
+			<span class="delete-symbol" aria-hidden="true">!</span>
+			<h2 id="delete-title">Delete user</h2>
+			<p><strong>@userPendingDeletion.FullName</strong> will be permanently removed.</p>
+			<div class="dialog-actions">
+				<button class="btn btn-light" @onclick="CancelDeletion">Cancel</button>
+				<button class="btn btn-danger" @onclick="DeleteAsync" disabled="@isDeleting">Delete</button>
+			</div>
+		</div>
+	</div>
+}
+
+@code {
+	private List<User> users = [];
+	private UserForm form = new();
+	private User? userPendingDeletion;
+	private Guid? editingUserId;
+	private string searchTerm = string.Empty;
+	private string? notification;
+	private bool isLoading = true;
+	private bool isEditorOpen;
+	private bool isSaving;
+	private bool isDeleting;
+
+	private IEnumerable<User> FilteredUsers => string.IsNullOrWhiteSpace(searchTerm)
+		? users
+		: users.Where(user => user.FullName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
+			|| user.Email.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+
+	protected override async Task OnInitializedAsync() => await LoadUsersAsync();
+
+	private async Task LoadUsersAsync()
+	{
+		users = [.. await UserService.GetAllAsync()];
+		isLoading = false;
+	}
+
+	private void StartCreating()
+	{
+		editingUserId = null;
+		form = new UserForm();
+		isEditorOpen = true;
+	}
+
+	private void StartEditing(User user)
+	{
+		editingUserId = user.Id;
+		form = new UserForm { FullName = user.FullName, Email = user.Email, Role = user.Role, IsActive = user.IsActive };
+		isEditorOpen = true;
+	}
+
+	private void CloseEditor()
+	{
+		isEditorOpen = false;
+		editingUserId = null;
+		form = new UserForm();
+	}
+
+	private async Task SaveAsync()
+	{
+		isSaving = true;
+		if (editingUserId is Guid id)
+		{
+			await UserService.UpdateAsync(id, form);
+			notification = "User updated successfully.";
+		}
+		else
+		{
+			await UserService.CreateAsync(form);
+			notification = "User created successfully.";
+		}
+
+		await LoadUsersAsync();
+		CloseEditor();
+		isSaving = false;
+	}
+
+	private async Task DeleteAsync()
+	{
+		if (userPendingDeletion is null) return;
+
+		isDeleting = true;
+		await UserService.DeleteAsync(userPendingDeletion.Id);
+		if (editingUserId == userPendingDeletion.Id) CloseEditor();
+		userPendingDeletion = null;
+		notification = "User deleted successfully.";
+		await LoadUsersAsync();
+		isDeleting = false;
+	}
+
+	private void CancelDeletion() => userPendingDeletion = null;
+
+	private static string GetInitials(string fullName) => string.Concat(fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(part => char.ToUpperInvariant(part[0])));
+}
