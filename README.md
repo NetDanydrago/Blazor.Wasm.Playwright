@@ -462,3 +462,164 @@ Con estos pasos puedes recrear el laboratorio desde cero en un equipo limpio. El
 7. ejecutar las pruebas E2E
 
 Ese es el punto en el que el README deja de ser un apunte parcial y se convierte en una guía realmente ejecutable desde cero.
+
+---
+
+# HOL-02: Explorar la aplicación con Playwright MCP
+
+Configura un Dev Container para ejecutar la aplicación Blazor, Chromium y Playwright MCP en Linux, y conéctalo con GitHub Copilot Chat en VS Code. La exploración ocurre sobre la página renderizada: no requiere cambiar el código de la aplicación ni reemplaza las pruebas automatizadas .NET.
+
+**Duración estimada:** ~25 minutos, más la descarga inicial de las imágenes y Chromium.
+
+## Conceptos que explorarás
+
+| Concepto | Descripción |
+|----------|-------------|
+| Dev Container | Entorno Linux aislado con .NET 10, Node.js 22 y las dependencias del navegador. |
+| Playwright MCP | Servidor que expone acciones del navegador a Copilot Chat mediante el Model Context Protocol. |
+| Transporte HTTP | Permite que VS Code en el host se conecte al servidor MCP del contenedor mediante un puerto reenviado. |
+| Exploración asistida | Copilot usa el navegador para inspeccionar e interactuar con la aplicación; las pruebas importantes siguen viviendo en la suite .NET. |
+
+## Requisitos
+
+- Docker Desktop instalado y en ejecución.
+- VS Code con la extensión **Dev Containers**.
+- GitHub Copilot Chat habilitado en VS Code y acceso a Copilot.
+- Abrir la raíz del repositorio (`Demo.PlayWright`) en VS Code.
+
+## Ejercicio paso a paso
+
+### Paso 1: Crear la configuración del Dev Container
+
+La configuración ya está en [`.devcontainer/devcontainer.json`](./.devcontainer/devcontainer.json). Declara el SDK de .NET 10, Node.js 22, un escritorio virtual con noVNC (feature `desktop-lite`) y los puertos de la app, del servidor MCP y de noVNC. En `postCreateCommand` instala Playwright MCP, las dependencias de Linux para Chromium y el propio navegador.
+
+Las extensiones de GitHub Copilot y C# Dev Kit se habilitan en el entorno remoto de VS Code. Copilot Chat sigue siendo la interfaz de VS Code; el servidor MCP y Chromium corren en el contenedor.
+
+### Paso 2: Abrir el proyecto dentro del contenedor
+
+En VS Code, abre la paleta con `Ctrl+Shift+P` y ejecuta **Dev Containers: Reopen in Container**. Acepta la reconstrucción si VS Code la solicita y espera a que finalice la instalación inicial.
+
+En la terminal integrada, comprueba las versiones:
+
+```bash
+dotnet --version
+node --version
+```
+
+Se espera .NET `10.x` y Node.js `v22.x`.
+
+### Paso 3: Configurar la conexión MCP de VS Code
+
+El archivo [`.mcp.json`](./.mcp.json) registra el servidor HTTP en `http://localhost:8931/mcp`. VS Code alcanza ese puerto mediante `forwardPorts` del Dev Container.
+
+Si el archivo se creó con la ventana del contenedor ya abierta, recarga VS Code para que detecte la configuración del workspace.
+
+### Paso 4: Iniciar la aplicación Blazor
+
+En una terminal del Dev Container, inicia la aplicación:
+
+```bash
+dotnet run --project src/UserManagementDemo/UserManagementDemo.csproj -- --urls http://0.0.0.0:5187
+```
+
+Deja la terminal abierta. El servidor escucha en todas las interfaces del contenedor y el navegador MCP usará `http://127.0.0.1:5187`.
+
+### Paso 5: Iniciar Playwright MCP
+
+Abre una segunda terminal del Dev Container y ejecuta:
+
+```bash
+DISPLAY=:1 ./.devcontainer/mcp/node_modules/.bin/playwright-mcp \
+  --port 8931 \
+  --host 0.0.0.0 \
+  --browser chromium \
+  --no-sandbox \
+  --codegen csharp
+```
+
+No se usa `--headless`: Chromium se abre con ventana en el escritorio virtual `:1`, que podrás ver en el paso siguiente.
+
+Deja también esta terminal abierta. El host `0.0.0.0` permite el reenvío del puerto desde VS Code; no publiques los puertos MCP ni noVNC en una red externa.
+
+### Paso 5.1: Ver el navegador en vivo
+
+1. En la pestaña **Ports** de VS Code, busca el puerto `6080` (**noVNC**) y selecciona **Open in Browser**; también puedes abrir `http://localhost:6080`.
+2. Pulsa **Connect** e introduce la contraseña `vscode` (la predeterminada de la feature `desktop-lite`).
+3. Verás un escritorio vacío. La ventana de Chromium aparecerá cuando Copilot use Playwright MCP por primera vez (paso 6.4).
+
+> Cambia la contraseña predeterminada con la opción `password` de la feature si el puerto es accesible fuera de tu equipo.
+
+### Paso 6: Conectar Copilot y probar el recorrido
+
+Los pasos 4 y 5 ya dejaron los dos servidores en ejecución: la aplicación en el puerto `5187` y Playwright MCP en el `8931`. No vuelvas a ejecutar esos comandos. En este paso solo conectarás VS Code con el servidor MCP existente y comprobarás que Copilot puede usar sus herramientas.
+
+#### 6.1. Comprobar los procesos y el puerto
+
+1. Confirma que las dos terminales anteriores siguen abiertas y sin errores:
+   - La terminal del paso 4 debe indicar que la aplicación escucha en el puerto `5187`.
+   - La terminal del paso 5 debe seguir ejecutando Playwright MCP en el puerto `8931`.
+2. Abre la vista **Ports** de VS Code y comprueba que el puerto `8931` aparece reenviado. Si no aparece, añade ese puerto manualmente antes de continuar.
+
+#### 6.2. Conectar VS Code con Playwright MCP
+
+1. Abre la paleta de comandos (`Ctrl+Shift+P`) y ejecuta **MCP: List Servers**.
+2. Selecciona `playwright`. Si aparece **Start**, pulsa para conectarte al servidor del paso 5; si ya figura como **Running**, continúa.
+3. Si aparece **Error**, usa **Restart Server** (ver [Solución de problemas](#solución-de-problemas-comunes-1)). Ignora los servidores `microsoftdocs/mcp` y `NuGet`: no se usan en este laboratorio.
+
+No abras **Configure Tools** hasta que `playwright` esté conectado.
+
+#### 6.3. Comprobar y habilitar las herramientas
+
+1. Abre Copilot Chat y selecciona el modo **Agent**.
+2. Pulsa el botón de herramientas del chat para abrir **Configure Tools**.
+3. Busca la sección **Connected Sources** o **MCP Servers**, según la versión de VS Code:
+   - El contador debe ser mayor que `0` y debe aparecer una fuente llamada `playwright`.
+   - Expande `playwright` y activa su interruptor general.
+   - Para este laboratorio, habilita todas las herramientas incluidas en `playwright`. Así estarán disponibles las operaciones necesarias para navegar, inspeccionar la página y pulsar controles aunque sus nombres cambien entre versiones.
+4. Si solo aparecen **Built-in Tools** y **Extension Tools**, o ves **Connected Sources (0)**, cierra **Configure Tools**. Playwright todavía no está conectado: vuelve a la sección 6.2 y corrige la conexión antes de intentarlo de nuevo.
+
+#### 6.4. Ejecutar el recorrido
+
+1. Envía este prompt:
+
+> Usa Playwright MCP para navegar a `http://127.0.0.1:5187`. Inspecciona la página y confirma que aparece el encabezado "User management". Después pulsa "New user" y confirma que aparece el diálogo "Create user". No envíes el formulario.
+
+2. Si VS Code pide permiso para invocar herramientas MCP, apruébalo para esta sesión.
+3. Verifica en el chat que Copilot invoque herramientas de `playwright` y no se limite a describir los pasos.
+4. Mantén abierta la pestaña de noVNC (paso 5.1): verás a Chromium navegar, pulsar "New user" y abrir el diálogo en tiempo real.
+
+La prueba es correcta cuando Copilot informa que Playwright navegó a la app, encontró el encabezado, pulsó el botón y observó el diálogo abierto, sin enviar el formulario.
+
+#### 6.5. Ejecutar una prueba más exhaustiva
+
+Cuando el recorrido básico funcione, pide a Copilot una prueba más completa que cree un usuario y navegue por la aplicación.
+
+1. Envía este prompt:
+
+> Usa Playwright MCP para hacer una prueba más exhaustiva de `http://127.0.0.1:5187`. Agrega un usuario y navega por la aplicación: envía el formulario vacío y comprueba los mensajes de validación; escribe un email inválido y comprueba el error de formato; crea el usuario "Marina Lopez" con el email `marina@example.com` y el rol Editor, y confirma que aparece en la tabla y que los totales se actualizan; búscalo por nombre; edítalo (cambia el nombre y márcalo como inactivo); abre el menú de navegación; visita una ruta inexistente y confirma la página "Not Found"; vuelve a la página principal; por último, crea un usuario temporal y elimínalo, comprobando que Cancel no lo borra y que Delete sí. Informa del resultado de cada paso.
+
+2. Aprueba las llamadas a herramientas MCP si VS Code lo solicita.
+
+La prueba es correcta cuando Copilot informa del resultado de cada paso. Ten en cuenta que los datos viven solo en memoria: al navegar por URL, la aplicación se recarga y vuelve a los tres usuarios iniciales.
+
+## Solución de problemas comunes
+
+| Síntoma | Comprobación |
+|---------|--------------|
+| `playwright` aparece en **Error** pero el puerto `8931` está activo | Estado obsoleto de VS Code. En **MCP: List Servers** selecciona `playwright` y usa **Restart Server**; si no basta, ejecuta **Developer: Reload Window**. |
+| VS Code no conecta con MCP | Si sigue en **Error**, abre **Show Output** desde **MCP: List Servers** y lee el mensaje. Confirma que el servidor del paso 5 sigue activo, que [`.mcp.json`](./.mcp.json) contiene `http://localhost:8931/mcp` y que el puerto `8931` está reenviado. |
+| Chromium no arranca | En el contenedor, ejecuta `sudo env "PATH=$PATH" ./.devcontainer/mcp/node_modules/.bin/playwright-core install-deps chromium` y después `./.devcontainer/mcp/node_modules/.bin/playwright-core install chromium`; reinicia el servidor MCP. |
+| noVNC no carga o no aparece Chromium | Confirma que el contenedor se reconstruyó con la feature `desktop-lite`, que el puerto `6080` está reenviado y que MCP se inició con `DISPLAY=:1` y sin `--headless`. Reinicia el servidor MCP tras cualquier cambio. |
+| La página no carga | Confirma que `dotnet run` sigue activo en la primera terminal y que la URL es `http://127.0.0.1:5187`. |
+| Copilot no muestra herramientas Playwright | Si **Configure Tools** muestra **Connected Sources (0)**, revisa primero **MCP: List Servers**. Cuando `playwright` esté conectado, vuelve a abrir **Configure Tools**, expande la fuente y habilita sus herramientas. Recarga VS Code si acabas de crear `.mcp.json`. |
+
+## Conclusión
+
+Al terminar, tendrás la aplicación y el navegador ejecutándose en el Dev Container, y Copilot Chat conectado a Playwright MCP desde VS Code. MCP sirve para exploración interactiva y asistencia; no sustituye las pruebas Playwright .NET, que siguen siendo el mecanismo versionado y repetible para validar regresiones.
+
+## Referencias
+
+- [Playwright MCP oficial](https://github.com/microsoft/playwright-mcp)
+- [Dev Containers en VS Code](https://code.visualstudio.com/docs/devcontainers/containers)
+- [Configurar servidores MCP en VS Code](https://code.visualstudio.com/docs/copilot/chat/mcp-servers)
+- [HOL-01: pruebas Playwright .NET](#hol-01-probar-una-aplicación-blazor-con-playwright-net)

@@ -1,0 +1,30 @@
+{
+  "name": "Demo.PlayWright - MCP",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/dotnet:2": {
+      "version": "10.0"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/desktop-lite:1": {}
+  },
+  "forwardPorts": [5187, 8931, 6080],
+  "portsAttributes": {
+    "6080": {
+      "label": "noVNC (navegador visible)",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "mkdir -p .devcontainer/mcp && npm install --prefix .devcontainer/mcp @playwright/mcp@latest && sudo env \"PATH=$PATH\" ./.devcontainer/mcp/node_modules/.bin/playwright-core install-deps chromium && ./.devcontainer/mcp/node_modules/.bin/playwright-core install chromium",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "ms-dotnettools.csdevkit"
+      ]
+    }
+  }
+}
